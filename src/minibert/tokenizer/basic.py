@@ -1,0 +1,104 @@
+"""Basic tokenization used before WorkPiece segmentation."""
+
+from __future__ import annotations
+
+import unicodedata
+
+
+def _is_whitespace(character: str) -> bool:
+    """Return whether a character is treated as whitespace."""
+    return character in {" ", "\t", "\n", "\r"} or unicodedata.category(character) == "Zs"
+
+def _is_control(character: str) -> bool:
+    """Return whether a character is a non-whitespace control character."""
+    if character in {"\t", "\n", "\r"}:
+        return False
+    return unicodedata.category(character).startswith("C")
+
+def _is_punctuation(character: str) -> bool:
+    """Return whether a character is punctuation."""
+    codepoint = ord(character)
+    if (
+        33 <= codepoint <= 47
+        or 58 <= codepoint <= 64
+        or 91 <= codepoint <= 96
+        or 123 <= codepoint <= 126
+    ):
+        return True
+    
+    return unicodedata.category(character).startswith("P")
+
+def _strip_accents(text: str) -> str:
+    """Remove Unicode accent marks from a string."""
+    decomposed = unicodedata.normalize("NFD", text)
+    return "".join(
+        character
+        for character in decomposed
+        if unicodedata.category(character) != "Mn"
+    )
+
+def _clean_text(text: str) -> str:
+    """Remove invalid characters and normalize whitespace to ASCII spaces."""
+    output: list[str] = []
+
+    for character in text:
+        if ord(character) in {0, 0xFFFD} or _is_control(character):
+            continue
+        
+        if _is_whitespace(character):
+            output.append(" ")
+        else: 
+            output.append(character)
+    
+    return "".join(output)
+
+def _split_on_punctuation(text: str) -> list[str]:
+    """Split text so that every punctuation character becomes its own token."""
+    tokens: list[list[str]] = []
+    current_token: list[str] = []
+
+    for character in text:
+        if _is_punctuation(character):
+            if current_token:
+                tokens.append(current_token)
+                current_token = []
+            tokens.append([character])
+        else:
+            current_token.append(character)
+    
+    if current_token:
+        tokens.append(current_token)
+    
+    return ["".join(token) for token in tokens]
+
+class BasicTokenizer:
+    """Tokenize text using the uncased BERT basic-tokenization rules."""
+
+    def __init__(
+        self, 
+        do_lower_case: bool = True,
+        never_split: set[str] | None = None,
+    ) -> None:
+        self.do_lower_case = do_lower_case
+        self.never_split = never_split or set()
+    
+    def tokenize(self, text: str) -> list[str]:
+        """Convert one string into basic tokens."""
+        if not isinstance(text, str):
+            raise TypeError(f"text must be str, got {type(text).__name__}")
+        
+        cleaned = _clean_text(text)
+        whitespace_tokens = cleaned.strip().split()
+
+        output_tokens: list[str] = []
+        for token in whitespace_tokens:
+            if token in self.never_split:
+                output_tokens.append(token)
+                continue
+            
+            if self.do_lower_case:
+                token = _strip_accents(token.lower())
+            
+            output_tokens.extend(_split_on_punctuation(token))
+        
+        return output_tokens
