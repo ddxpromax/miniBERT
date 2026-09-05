@@ -96,3 +96,16 @@ def clean_jsonl_corpus(
             stats.kept_records += 1
     
     return stats
+
+def iter_corpus_texts(input_path: Path) -> Iterator[str]:
+    """Yield the text field from a cleaned JSONL corpus."""
+    for line_number, record in iter_jsonl_records(input_path):
+        text = record.get("text")
+
+        if not isinstance(text, str):
+            raise ValueError(
+                f"Expected a string text field in {input_path} "
+                f"at line {line_number}"
+            )
+        
+        yield text

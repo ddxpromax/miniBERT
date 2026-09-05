@@ -1,5 +1,7 @@
 import pytest
 
+from pathlib import Path
+
 from minibert.tokenizer.bert import BertTokenizer
 from minibert.tokenizer.vocabulary import SPECIAL_TOKENS, Vocabulary
 
@@ -84,3 +86,27 @@ def test_bert_tokenizer_preserves_special_tokens_in_input(
         "hello",
         "[SEP]",
     ]
+
+def test_vocabulary_save_and_load_round_trip(
+    vocabulary: Vocabulary,
+    tmp_path: Path,
+) -> None:
+    vocabulary_path = tmp_path / "vocab.txt"
+
+    vocabulary.save(vocabulary_path)
+    loaded = Vocabulary.from_file(vocabulary_path)
+
+    assert loaded.tokens == vocabulary.tokens
+    assert loaded.token_to_id == vocabulary.token_to_id
+
+def test_vocabulary_file_has_one_token_per_line(
+    vocabulary: Vocabulary,
+    tmp_path: Path,
+) -> None:
+    vocabulary_path = tmp_path / "vocab.txt"
+
+    vocabulary.save(vocabulary_path)
+
+    assert vocabulary_path.read_text(encoding="utf-8").splitlines() == list(
+        vocabulary.tokens
+    )

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from minibert.data.corpus import clean_jsonl_corpus, document_id, iter_jsonl_records
+from minibert.data.corpus import clean_jsonl_corpus, document_id, iter_jsonl_records, iter_corpus_texts
 
 
 def write_text(path: Path, text: str) -> None:
@@ -79,3 +79,30 @@ def test_iter_jsonl_records_rejects_non_object_json(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Expected a JSON object.*line 1"):
         list(iter_jsonl_records(input_path))
+    
+def test_iter_corpus_texts_yields_text_fields(tmp_path: Path) -> None:
+    input_path = tmp_path / "clean.jsonl"
+    write_text(
+        input_path,
+        '\n'.join(
+            [
+                '{"id": "one", "text": "First document."}',
+                '{"id": "two", "text": "Second document."}',
+            ]
+        )
+        + "\n",
+    )
+
+    assert list(iter_corpus_texts(input_path)) == [
+        "First document.",
+        "Second document.",
+    ]
+
+def test_iter_corpus_texts_rejects_missing_or_non_string_text(
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "invalid.jsonl"
+    write_text(input_path, '{"id": "one", "text": 123}\n')
+
+    with pytest.raises(ValueError, match="Expected a string text field.*line 1"):
+        list(iter_corpus_texts(input_path))
