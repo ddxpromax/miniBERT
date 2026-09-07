@@ -2,3 +2,5 @@ numpy
 tqdm
 pytest
 tensorboard
+huggingface_hub
+pyarrow
