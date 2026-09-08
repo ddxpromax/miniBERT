@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from tqdm import tqdm
+
 from collections import Counter
 from collections.abc import Iterable
 
 from minibert.tokenizer.basic import BasicTokenizer
 from minibert.tokenizer.vocabulary import SPECIAL_TOKENS, Vocabulary
+from minibert.tokenizer.pair_heap import PairHeap
+from minibert.tokenizer.training_state import IncrementalWordPieceState
 
 
 def _initial_pieces(word: str) -> tuple[str, ...]:
@@ -59,7 +63,7 @@ class WordPieceTrainer:
         self.do_lower_case = do_lower_case
         self.min_frequency = min_frequency
     
-    def train(self, documents: Iterable[str]) -> Vocabulary:
+    def train(self, documents: Iterable[str], *, show_progress: bool = False) -> Vocabulary:
         """Train and return a WordPiece vocabulary from text documents."""
         basic_tokenizer = BasicTokenizer(
             do_lower_case=self.do_lower_case,
@@ -67,16 +71,23 @@ class WordPieceTrainer:
         )
         word_counts: Counter[str] = Counter()
 
-        for document in documents:
-            if not isinstance(document, str):
-                raise TypeError(
-                    "every document must be str, "
-                    f"got {type(document).__name__}"
-                )
-            
-            for token in basic_tokenizer.tokenize(document):
-                if token not in SPECIAL_TOKENS:
-                    word_counts[token] += 1
+        with tqdm(
+            documents,
+            desc="Counting words",
+            unit="doc",
+            disable=not show_progress,
+            miniterval=0.5,
+        ) as document_progress:
+            for document in document_progress:
+                if not isinstance(document, str):
+                    raise TypeError(
+                        "every document must be str, "
+                        f"got {type(document).__name__}"
+                    )
+                
+                for token in basic_tokenizer.tokenize(document):
+                    if token not in SPECIAL_TOKENS:
+                        word_counts[token] += 1
         
         word_counts = Counter(
             {
@@ -109,41 +120,58 @@ class WordPieceTrainer:
                 "and the initial character vocabulary"
             )
         
-        while len(vocabulary_tokens) < self.vocab_size:
-            piece_counts: Counter[str] = Counter()
-            pair_counts: Counter[tuple[str, str]] = Counter()
-
-            for word, pieces in word_pieces.items():
-                frequency = word_counts[word]
-
-                for piece in pieces:
-                    piece_counts[piece] += frequency
-                
-                for index in range(len(pieces) - 1):
-                    pair = (pieces[index], pieces[index + 1])
-                    pair_counts[pair] += frequency
-
-            candidates: list[tuple[float, int, tuple[str, str]]] = []
-
-            for pair, pair_frequency in pair_counts.items():
-                left, right = pair
-                score = pair_frequency / (piece_counts[left] * piece_counts[right])
-                candidates.append((score, pair_frequency, pair))
-
-            if not candidates: 
-                break
-            
-            _, _, best_pair = min(
-                candidates, 
-                key=lambda item: (-item[0], -item[1], item[2]),
+        if show_progress:
+            tqdm.write(
+                f"Retained words: {len(word_counts):,} "
+                f"initial vocabulary: {len(vocabulary_tokens):,}"
             )
+            tqdm.write("Building pair statistics and reverse indexes...")
+        
+        state = IncrementalWordPieceState.build(
+            pieces_by_word=word_pieces,
+            word_counts=word_counts,
+        )
 
-            new_piece = best_pair[0] + best_pair[1].removeprefix("##")
-            vocabulary_tokens.append(new_piece)
+        if show_progress:
+            tqdm.write(
+                f"Building heap for "
+                f"{len(state.global_pair_counts):,} pairs..."
+            )
+        
+        pair_heap = PairHeap(state)
+        vocabulary_set = set(vocabulary_tokens)
 
-            word_pieces = {
-                word: _merge_pair(pieces, best_pair)
-                for word, pieces in word_pieces.items()
-            }
+        with tqdm(
+            total=self.vocab_size,
+            initial=len(vocabulary_tokens),
+            desc="Training vocabulary",
+            unit="token",
+            disable=not show_progress,
+            mininterval=0.5,
+        ) as vocabulary_progress:
+            while len(vocabulary_tokens) < self.vocab_size:
+                best_pair = pair_heap.pop_best()
 
+                if best_pair is None:
+                    vocabulary_progress.set_description(
+                        "Finished: no pairs remain"
+                    )
+                    break
+                
+                left, right = best_pair
+                new_piece = left + right.removeprefix("##")
+
+                affected_word_count = pair_heap.merge_and_refresh(best_pair)
+
+                if affected_word_count == 0:
+                    raise RuntimeError(
+                        "Heap returned a pair absent from the corpus: "
+                        f"{best_pair!r}"
+                    )
+                
+                if new_piece not in vocabulary_set:
+                    vocabulary_tokens.append(new_piece)
+                    vocabulary_set.add(new_piece)
+                    vocabulary_progress.update(1)
+        
         return Vocabulary(vocabulary_tokens)

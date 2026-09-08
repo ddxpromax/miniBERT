@@ -70,3 +70,45 @@ def test_trainer_rejects_invalid_configuration_and_documents() -> None:
 
     with pytest.raises(ValueError, match="no tokens remain"):
         WordPieceTrainer(vocab_size=10, min_frequency=2).train(["once"])
+
+@pytest.mark.parametrize(
+    ("vocab_size", "expected_merges"),
+    [
+        (9, []),
+        (10, ["ac"]),
+        (11, ["ac", "ab"]),
+        (12, ["ac", "ab", "db"]),
+        (20, ["ac", "ab", "db"]),
+    ],
+)
+def test_trainer_produces_expected_merge_sequence(
+    vocab_size: int,
+    expected_merges: list[str],
+) -> None:
+    trainer = WordPieceTrainer(
+        vocab_size=vocab_size,
+        min_frequency=1,
+    )
+
+    vocabulary = trainer.train(["ab ac db"])
+
+    assert vocabulary.tokens == (
+        *SPECIAL_TOKENS,
+        "##b",
+        "##c",
+        "a",
+        "d",
+        *expected_merges,
+    )
+
+def test_trainer_id_deterministic_across_document_order() -> None:
+    documents = [
+        "Playing played playing.",
+        "Players play.",
+    ]
+    trainer = WordPieceTrainer(vocab_size=20, min_frequency=1)
+
+    first = trainer.train(documents)
+    second = trainer.train(reversed(documents))
+
+    assert first.tokens == second.tokens

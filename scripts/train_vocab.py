@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+
 import argparse
 from pathlib import Path
 
@@ -15,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--vocab-size", type=int, required=True)
     parser.add_argument("--min-frequency", type=int, default=2)
+    parser.add_argument("--no-progress", action="store_true", help="Disable training progress output.")
     return parser.parse_args()
 
 def main() -> None:
@@ -25,8 +28,18 @@ def main() -> None:
         do_lower_case=True,
         min_frequency=args.min_frequency,
     )
-    vocabulary = trainer.train(iter_corpus_texts(args.input))
+
+    started_at = perf_counter()
+
+    vocabulary = trainer.train(
+        iter_corpus_texts(args.input),
+        show_progress=not args.no_progress,
+    )
+
+    training_seconds = perf_counter() - started_at
     vocabulary.save(args.output)
+
+    print(f"Training time: {training_seconds:.1f} seconds")
 
     print(f"Input: {args.input}")
     print(f"Output: {args.output}")
