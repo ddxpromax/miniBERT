@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from time import perf_counter
-
+from itertools import islice
 import argparse
 from pathlib import Path
 
@@ -18,7 +18,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vocab-size", type=int, required=True)
     parser.add_argument("--min-frequency", type=int, default=2)
     parser.add_argument("--no-progress", action="store_true", help="Disable training progress output.")
-    return parser.parse_args()
+    parser.add_argument("--max-documents", type=int, default=None, help="Use only the first N documents for a small training run.")
+
+    args = parser.parse_args()
+    
+    if args.max_documents is not None and args.max_documents < 1:
+        parser.error("--max-documents must be at least 1")
+
+    return args
 
 def main() -> None:
     args = parse_args()
@@ -31,10 +38,19 @@ def main() -> None:
 
     started_at = perf_counter()
 
+    documents = iter_corpus_texts(args.input)
+
+    if args.max_documents is not None:
+        documents = islice(documents, args.max_documents)
+    
+    started_at = perf_counter()
+
     vocabulary = trainer.train(
-        iter_corpus_texts(args.input),
+        documents,
         show_progress=not args.no_progress,
     )
+
+    training_second = perf_counter() - started_at
 
     training_seconds = perf_counter() - started_at
     vocabulary.save(args.output)

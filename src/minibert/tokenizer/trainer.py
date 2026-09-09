@@ -76,7 +76,7 @@ class WordPieceTrainer:
             desc="Counting words",
             unit="doc",
             disable=not show_progress,
-            miniterval=0.5,
+            mininterval=0.5,
         ) as document_progress:
             for document in document_progress:
                 if not isinstance(document, str):
