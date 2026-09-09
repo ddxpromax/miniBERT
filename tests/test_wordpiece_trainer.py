@@ -6,7 +6,7 @@ from minibert.tokenizer.vocabulary import SPECIAL_TOKENS, Vocabulary
 
 
 def test_trainer_creates_requested_size_and_fixed_special_tokens() -> None:
-    trainer = WordPieceTrainer(vocab_size=20, min_frequency=1)
+    trainer = WordPieceTrainer(vocab_size=30, min_frequency=1)
 
     vocabulary = trainer.train(
         [
@@ -15,7 +15,7 @@ def test_trainer_creates_requested_size_and_fixed_special_tokens() -> None:
         ]
     )
 
-    assert len(vocabulary) == 20
+    assert len(vocabulary) == 30
     assert vocabulary.tokens[:5] == SPECIAL_TOKENS
 
 def test_trainer_id_deterministic() -> None:
@@ -24,13 +24,13 @@ def test_trainer_id_deterministic() -> None:
         "Players play.",
     ]
 
-    first = WordPieceTrainer(vocab_size=20, min_frequency=1).train(documents)
-    second = WordPieceTrainer(vocab_size=20, min_frequency=1).train(documents)
+    first = WordPieceTrainer(vocab_size=30, min_frequency=1).train(documents)
+    second = WordPieceTrainer(vocab_size=30, min_frequency=1).train(documents)
 
     assert first.tokens == second.tokens
 
 def test_trained_vocabulary_can_encode_seen_text() -> None:
-    vocabulary = WordPieceTrainer(vocab_size=20, min_frequency=1).train(
+    vocabulary = WordPieceTrainer(vocab_size=30, min_frequency=1).train(
         [
             "Playing played playing.",
             "Players play.",
@@ -44,7 +44,7 @@ def test_trained_vocabulary_can_encode_seen_text() -> None:
     assert "".join(piece.removeprefix("##") for piece in tokens) == "playing"
 
 def test_trainer_filters_infrequent_words() -> None:
-    trainer = WordPieceTrainer(vocab_size=12, min_frequency=2)
+    trainer = WordPieceTrainer(vocab_size=22, min_frequency=2)
 
     vocabulary = trainer.train(
         [
@@ -74,11 +74,11 @@ def test_trainer_rejects_invalid_configuration_and_documents() -> None:
 @pytest.mark.parametrize(
     ("vocab_size", "expected_merges"),
     [
-        (9, []),
-        (10, ["ac"]),
-        (11, ["ac", "ab"]),
-        (12, ["ac", "ab", "db"]),
-        (20, ["ac", "ab", "db"]),
+        (19, []),
+        (20, ["ac"]),
+        (21, ["ac", "ab"]),
+        (22, ["ac", "ab", "db"]),
+        (30, ["ac", "ab", "db"]),
     ],
 )
 def test_trainer_produces_expected_merge_sequence(
@@ -96,6 +96,7 @@ def test_trainer_produces_expected_merge_sequence(
         *SPECIAL_TOKENS,
         "##b",
         "##c",
+        *"0123456789",
         "a",
         "d",
         *expected_merges,
@@ -106,9 +107,28 @@ def test_trainer_id_deterministic_across_document_order() -> None:
         "Playing played playing.",
         "Players play.",
     ]
-    trainer = WordPieceTrainer(vocab_size=20, min_frequency=1)
+    trainer = WordPieceTrainer(vocab_size=30, min_frequency=1)
 
     first = trainer.train(documents)
     second = trainer.train(reversed(documents))
 
     assert first.tokens == second.tokens
+
+def test_trainer_and_encoder_respect_digit_boundaries() -> None:
+    trainer = WordPieceTrainer(vocab_size=64, min_frequency=2)
+
+    vocabulary = trainer.train(["abc2026def abc2026def"])
+    tokenizer = BertTokenizer(vocabulary)
+
+    assert tokenizer.tokenize("abc2026def") == [
+        "abc", "2", "0", "2", "6", "def",
+    ]
+
+    assert "abcdef" not in vocabulary.tokens
+
+    digit_tokens = {
+        token
+        for token in vocabulary.tokens
+        if any(character.isdecimal() for character in token)
+    }
+    assert digit_tokens == set("0123456789")

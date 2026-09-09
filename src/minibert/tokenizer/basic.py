@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unicodedata
 
+ASCII_DIGITS = "0123456789"
+
 
 def _is_whitespace(character: str) -> bool:
     """Return whether a character is treated as whitespace."""
@@ -71,6 +73,27 @@ def _split_on_punctuation(text: str) -> list[str]:
     
     return ["".join(token) for token in tokens]
 
+def _split_on_digits(text: str) -> list[str]:
+    """Isolate decimal digits and normalize them to ASCII."""
+    tokens: list[str] = []
+    current: list[str] = []
+
+    for character in text:
+        if character.isdecimal():
+            if current:
+                tokens.append("".join(current))
+                current = []
+
+            digit = unicodedata.decimal(character)
+            tokens.append(str(digit))
+        else:
+            current.append(character)
+
+    if current:
+        tokens.append("".join(current))
+    
+    return tokens
+
 class BasicTokenizer:
     """Tokenize text using the uncased BERT basic-tokenization rules."""
 
@@ -99,6 +122,9 @@ class BasicTokenizer:
             if self.do_lower_case:
                 token = _strip_accents(token.lower())
             
-            output_tokens.extend(_split_on_punctuation(token))
+            for punctuation_token in _split_on_punctuation(token):
+                output_tokens.extend(
+                    _split_on_digits(punctuation_token)
+                )
         
         return output_tokens

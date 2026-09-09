@@ -27,7 +27,7 @@ class Vocabulary:
     def __len__(self) -> int:
         return len(self.tokens)
     
-    def contains(self, tokens: str) -> bool:
+    def contains(self, token: str) -> bool:
         """Return whether a token exist in this vocabulary."""
         return token in self.token_to_id
 

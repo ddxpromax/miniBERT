@@ -7,7 +7,7 @@ from tqdm import tqdm
 from collections import Counter
 from collections.abc import Iterable
 
-from minibert.tokenizer.basic import BasicTokenizer
+from minibert.tokenizer.basic import BasicTokenizer, ASCII_DIGITS
 from minibert.tokenizer.vocabulary import SPECIAL_TOKENS, Vocabulary
 from minibert.tokenizer.pair_heap import PairHeap
 from minibert.tokenizer.training_state import IncrementalWordPieceState
@@ -111,6 +111,7 @@ class WordPieceTrainer:
                 for pieces in word_pieces.values()
                 for piece in pieces
             }
+            | set(ASCII_DIGITS)
         )
         vocabulary_tokens = [*SPECIAL_TOKENS, *initial_tokens]
 

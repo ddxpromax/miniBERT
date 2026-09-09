@@ -54,3 +54,30 @@ def test_tokenizer_can_keep_case_and_accents() -> None:
 def test_tokenizer_rejects_non_string_input() -> None:
     with pytest.raises(TypeError, match="text must be str"):
         BasicTokenizer().tokenize(None)
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("2026", ["2", "0", "2", "6"]),
+        ("abc2026def", ["abc", "2", "0", "2", "6", "def"]),
+        ("B52", ["b", "5", "2"]),
+        ("-3.14%", ["-", "3", ".", "1", "4", "%"]),
+        ("007", ["0", "0", "7"]),
+        ("abc１２٣def", ["abc", "1", "2", "3", "def"]),
+    ],
+)
+def test_tokenizer_isolates_decimal_digits(
+    text: str,
+    expected: list[str],
+) -> None:
+    assert BasicTokenizer().tokenize(text) == expected
+
+def test_digit_splitting_preserves_never_split_tokens() -> None:
+    tokenizer = BasicTokenizer(never_split={"[SPECIAL2]"})
+
+    assert tokenizer.tokenize("[SPECIAL2] B52") == [
+        "[SPECIAL2]",
+        "b",
+        "5",
+        "2",
+    ]
