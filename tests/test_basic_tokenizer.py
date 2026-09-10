@@ -81,3 +81,36 @@ def test_digit_splitting_preserves_never_split_tokens() -> None:
         "5",
         "2",
     ]
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("hello中文world", ["hello", "[UNK]", "world"]),
+        ("English 東京 text", ["english", "[UNK]", "text"]),
+        (
+            "abc2026中文def",
+            ["abc", "2", "0", "2", "6", "[UNK]", "def"],
+        ),
+        ("Ελληνικά Русский العربية", ["[UNK]", "[UNK]", "[UNK]"]),
+        ("Café Straße", ["cafe", "straße"]),
+        ("bonjour", ["bonjour"]),
+    ],
+)
+def test_tokenizer_replaces_non_latin_letter_runs(
+    text: str,
+    expected: list[str],
+) -> None:
+    assert BasicTokenizer().tokenize(text) == expected
+
+def test_non_latin_filter_handles_combining_marks() -> None:
+    tokenizer = BasicTokenizer(do_lower_case=False)
+
+    assert tokenizer.tokenize("Cafe\u0301 नमस्ते") == ["Cafe\u0301", "[UNK]"]
+
+def test_non_latin_filter_preserves_never_split_tokens() -> None:
+    tokenizer = BasicTokenizer(never_split={"[外文2]"})
+
+    assert tokenizer.tokenize("[外文2] 中文") == [
+        "[外文2]",
+        "[UNK]",
+    ]

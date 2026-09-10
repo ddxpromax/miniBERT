@@ -132,3 +132,34 @@ def test_trainer_and_encoder_respect_digit_boundaries() -> None:
         if any(character.isdecimal() for character in token)
     }
     assert digit_tokens == set("0123456789")
+
+def test_trainer_excludes_non_latin_text_and_preserves_boundaries() -> None:
+    trainer = WordPieceTrainer(vocab_size=64, min_frequency=2)
+
+    vocabulary = trainer.train(
+        ["ab中文cd ab中文cd 東京 Русский"]
+    )
+    tokenizer = BertTokenizer(vocabulary)
+
+    assert all(token.isascii() for token in vocabulary.tokens)
+    assert "ab" in vocabulary.tokens
+    assert "cd" in vocabulary.tokens
+    
+    assert "abcd" not in vocabulary.tokens
+
+    assert tokenizer.tokenize("ab中文cd") == [
+        "ab", "[UNK]", "cd",
+    ]
+    assert tokenizer.encode("ab中文cd") == [
+        vocabulary.token_id("[CLS]"),
+        vocabulary.token_id("ab"),
+        vocabulary.token_id("[UNK]"),
+        vocabulary.token_id("cd"),
+        vocabulary.token_id("[SEP]"),
+    ]
+
+def test_trainer_rejects_corpus_with_only_unsupported_letters() -> None:
+    trainer = WordPieceTrainer(vocab_size=64, min_frequency=1)
+
+    with pytest.raises(ValueError, match="no tokens remain"):
+        trainer.train(["中文 東京 Русский"])

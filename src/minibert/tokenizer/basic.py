@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import unicodedata
+import regex
 
 ASCII_DIGITS = "0123456789"
+NON_LATIN_RUN = regex.compile(
+    r"(?:[\p{Letter}--\p{Script=Latin}]\p{Mark}*)+",
+    flags=regex.VERSION1,
+)
 
 
 def _is_whitespace(character: str) -> bool:
@@ -94,6 +99,22 @@ def _split_on_digits(text: str) -> list[str]:
     
     return tokens
 
+def _replace_non_latin_runs(text: str) -> list[str]:
+    """Replace non-Latin letter runs with seperate unknown tokens."""
+    tokens: list[str] = []
+    position = 0
+
+    for match in NON_LATIN_RUN.finditer(text):
+        if match.start() > position:
+            tokens.append(text[position:match.start()])
+
+        tokens.append("[UNK]")
+        position = match.end()
+
+    if position < len(text):
+        tokens.append(text[position:])
+    return tokens
+
 class BasicTokenizer:
     """Tokenize text using the uncased BERT basic-tokenization rules."""
 
@@ -123,8 +144,7 @@ class BasicTokenizer:
                 token = _strip_accents(token.lower())
             
             for punctuation_token in _split_on_punctuation(token):
-                output_tokens.extend(
-                    _split_on_digits(punctuation_token)
-                )
+                for digit_token in _split_on_digits(punctuation_token):
+                    output_tokens.extend(_replace_non_latin_runs(digit_token))
         
         return output_tokens

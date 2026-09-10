@@ -4,3 +4,4 @@ pytest
 tensorboard
 huggingface_hub
 pyarrow
+regex
