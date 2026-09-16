@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+from time import perf_counter
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-batches", type=int, default=None, help="For a small smoke test; omit for a full epoch.")
     parser.add_argument("--device", type=str, default=None, choices=['cpu', 'cuda'])
+    parser.add_argument("--metrics", type=Path, default=None, help="Path to the JSONL metrics file.")
 
     args = parser.parse_args()
 
@@ -48,6 +51,25 @@ def parse_args() -> argparse.Namespace:
         parser.error("--max-batches must be positive")
 
     return args
+
+def append_metrics(
+    path: Path,
+    record: dict[str, object],
+) -> None:
+    """Append one JSON record without loading previous records."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open(
+        "a",
+        encoding="utf-8",
+    ) as metrics_file:
+        metrics_file.write(
+            json.dumps(
+                record,
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
 
 def choose_device(requested: str | None) -> torch.device:
     if requested == "cuda" and not torch.cuda.is_available():
@@ -86,6 +108,11 @@ def save_checkpoint(
 
 def main() -> None:
     args = parse_args()
+
+    metrics_path = args.metrics
+
+    if metrics_path is None:
+        metrics_path = args.output / "metrics.jsonl"
 
     torch.manual_seed(args.seed)
 
@@ -128,6 +155,8 @@ def main() -> None:
     print(f"Parameters: {sum(parameter.numel() for parameter in model.parameters()):,}")
 
     for epoch in range(1, args.epochs + 1):
+        epoch_started_at = perf_counter()
+
         train_metrics = train_epoch(
             model,
             train_corpus,
@@ -151,12 +180,15 @@ def main() -> None:
             max_batches=args.max_batches,
         )
 
+        epoch_seconds = perf_counter() - epoch_started_at
+
         print(
             f"Epoch {epoch}: "
             f"train_loss={train_metrics.loss:.4f}, "
             f"validation_loss={validation_metrics.loss:.4f}, "
             f"train_batches={train_metrics.batches}, "
             f"validation_batches={validation_metrics.batches}"
+            f"seconds={epoch_seconds:.1f}"
         )
 
         save_checkpoint(
@@ -167,6 +199,27 @@ def main() -> None:
             train_loss=train_metrics.loss,
             validation_loss=validation_metrics.loss,
             args=args,
+        )
+
+        append_metrics(
+            metrics_path,
+            {
+                "epoch": epoch,
+                "train_loss": train_metrics.loss,
+                "validation_loss": validation_metrics.loss,
+                "train_batches": train_metrics.batches,
+                "validation_batches": validation_metrics.batches,
+                "train_masked_positions": train_metrics.masked_positions,
+                "validation_masked_positions": validation_metrics.masked_positions,
+                "epoch_seconds": epoch_seconds,
+                "device": str(device),
+                "vocabulary_size": vocabulary_size,
+                "max_length": args.max_length,
+                "hidden_size": args.hidden_size,
+                "num_heads": args.num_heads,
+                "intermediate_size": args.intermediate_size,
+                "num_layers": args.num_layers,
+            },
         )
 
 if __name__ == "__main__":
