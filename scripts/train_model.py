@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-batches", type=int, default=None, help="For a small smoke test; omit for a full epoch.")
     parser.add_argument("--device", type=str, default=None, choices=['cpu', 'cuda'])
     parser.add_argument("--metrics", type=Path, default=None, help="Path to the JSONL metrics file.")
+    parser.add_argument("--resume", type=Path, default=None, help="Path to a checkpoint to resume from.")
 
     args = parser.parse_args()
 
@@ -80,6 +81,48 @@ def choose_device(requested: str | None) -> torch.device:
     
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def load_checkpoint(
+    path: Path,
+    *,
+    model: MiniBERT,
+    optimizer: torch.optim.Optimizer,
+) -> int:
+    """Load model and optimizer state and return completed epoch."""
+    checkpoint = torch.load(
+        path,
+        map_location="cpu",
+        weights_only=False,
+    )
+
+    if not isinstance(checkpoint, dict):
+        raise ValueError("checkpoint must contain a dictionary")
+    
+    required_keys = {
+        "epoch",
+        "model_state_dict",
+        "optimizer_state_dict",
+    }
+
+    missing_keys = required_keys - checkpoint.keys()
+
+    if missing_keys:
+        raise ValueError(
+            f"checkpoint is missing keys: {sorted(missing_keys)}"
+        )
+
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    completed_epoch = checkpoint["epoch"]
+
+    if (
+        type(completed_epoch) is not int
+        or completed_epoch < 0
+    ):
+        raise ValueError("checkpoint epoch must be a non-negative integer")
+    
+    return completed_epoch
+
 def save_checkpoint(
     output_dir: Path,
     *,
@@ -101,10 +144,19 @@ def save_checkpoint(
         "config": vars(args),
     }
 
-    torch.save(
-        checkpoint,
-        output_dir / f"epoch_{epoch:04d}.pt",
-    )
+    filename = f"epoch_{epoch:04d}.pt"
+    final_path = output_dir / filename
+    temporary_path = output_dir / f".{filename}.tmp"
+
+    try:
+        torch.save(
+            checkpoint,
+            temporary_path,
+        )
+        temporary_path.replace(final_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
 
 def main() -> None:
     args = parse_args()
@@ -148,13 +200,29 @@ def main() -> None:
         lr=args.learning_rate,
     )
 
+    start_epoch = 1
+
+    if args.resume is not None:
+        completed_epoch = load_checkpoint(
+            args.resume,
+            model=model,
+            optimizer=optimizer,
+        )
+
+        start_epoch = completed_epoch + 1
+
+        print(
+            f"Resumed from {args.resume}; "
+            f"starting epoch {start_epoch}"
+        )
+
     print(f"Device: {device}")
     print(f"Vocabulary size: {vocabulary_size}")
     print(f"Train documents: {len(train_corpus):,}")
     print(f"Validation documents: {len(validation_corpus):,}")
     print(f"Parameters: {sum(parameter.numel() for parameter in model.parameters()):,}")
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         epoch_started_at = perf_counter()
 
         train_metrics = train_epoch(
@@ -187,7 +255,7 @@ def main() -> None:
             f"train_loss={train_metrics.loss:.4f}, "
             f"validation_loss={validation_metrics.loss:.4f}, "
             f"train_batches={train_metrics.batches}, "
-            f"validation_batches={validation_metrics.batches}"
+            f"validation_batches={validation_metrics.batches}, "
             f"seconds={epoch_seconds:.1f}"
         )
 
